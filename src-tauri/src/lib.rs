@@ -10,11 +10,12 @@ fn greet(name: &str) -> String {
 /// Used to verify that external mpv playback works on Linux (Docker/X11)
 /// without touching the embedded tauri-plugin-libmpv path.
 #[tauri::command]
-async fn test_mpv(
+fn test_mpv(
     url: String,
     headers: Option<std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
-    let mut cmd = tokio::process::Command::new("mpv");
+    use std::process::Command;
+    let mut cmd = Command::new("mpv");
     cmd.arg("--fullscreen")
        .arg("--vo=gpu")
        .arg("--hwdec=no");
