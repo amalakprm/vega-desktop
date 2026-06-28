@@ -28,15 +28,35 @@ pub fn run() {
     }
 
     builder
+        .manage(ProxyState { port: Mutex::new(None) })
         .manage(download_manager::DownloadState::new())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                println!("[stream_proxy] Starting proxy server...");
+                match stream_server::start_server().await {
+                    Ok(port) => {
+                        println!("[stream_proxy] Server started on port {}", port);
+                        let state: tauri::State<ProxyState> = app_handle.state();
+                        *state.port.lock().unwrap() = Some(port);
+                    }
+                    Err(e) => {
+                        eprintln!("[stream_proxy] Failed to start server: {}", e);
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             external_mpv::launch_mpv,
             download_manager::start_download,
             download_manager::pause_download,
             download_manager::cancel_download,
+            download_manager::save_subtitle,
             cookie_manager::get_cookies_for_url,
-            cookie_manager::clear_cookies_for_url
+            cookie_manager::clear_cookies_for_url,
+            open_external_player
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

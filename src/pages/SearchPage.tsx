@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search, Loader2 } from 'lucide-react';
+import { LuSearch as Search, LuLoaderCircle as Loader2 } from 'react-icons/lu';
 import { useGlobalSearch } from '../lib/hooks/useGlobalSearch';
 import { ContentSlider } from '../components/home/ContentSlider';
 
@@ -41,14 +41,14 @@ export const SearchPage: React.FC = () => {
           <FocusableButton
             className="search-page-form-inner"
             onClick={() => nativeInputRef.current?.focus()}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'transparent', border: 'none', padding: 0, outline: 'none' }}
+            style={{ flex: 1, gap: "8px", display: 'flex', alignItems: 'center', background: 'transparent', border: 'none', padding: 0, outline: 'none' }}
           >
-            <Search size={28} className="search-page-icon text-muted" />
+            <Search size={25} className="search-page-icon text-muted" />
             <input
               ref={nativeInputRef}
               type="text"
               placeholder="Search all providers..."
-              className="search-page-input display-sm"
+              className="search-page-input"
               value={localQuery}
               onChange={e => setLocalQuery(e.target.value)}
               onKeyDown={(e) => {

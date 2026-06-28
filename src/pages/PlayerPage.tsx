@@ -12,7 +12,7 @@ import { LogicalSize } from '@tauri-apps/api/dpi';
 import { FocusContext, useFocusable } from '@noriginmedia/norigin-spatial-navigation-react';
 import { FocusableButton } from '../components/layout/FocusableButton';
 
-import { Play } from 'lucide-react';
+import { LuPlay as Play } from 'react-icons/lu';
 import './PlayerPage.css';
 
 interface PlayerLocationState {
@@ -79,8 +79,9 @@ const PlayerInner: React.FC<PlayerInnerProps> = ({ state }) => {
   });
 
   const isAndroid = navigator.userAgent.toLowerCase().includes('android');
+  const isLinux = navigator.userAgent.toLowerCase().includes('linux') && !isAndroid;
 
-  if (isAndroid) {
+  if (isAndroid || isLinux) {
     return (
       <TvPlayer
         state={state}
@@ -90,6 +91,8 @@ const PlayerInner: React.FC<PlayerInnerProps> = ({ state }) => {
         streamData={streamData}
         selectedStream={selectedStream}
         setSelectedStream={setSelectedStream}
+        isAndroid={isAndroid}
+        isLinux={isLinux}
       />
     );
   }
@@ -119,9 +122,12 @@ const TvPlayer: React.FC<any> = ({
   streamData,
   selectedStream,
   setSelectedStream,
+  isAndroid,
+  isLinux
 }) => {
   const navigate = useNavigate();
   const { addItem } = useWatchHistoryStore();
+  const [isLaunching, setIsLaunching] = useState(false);
 
   const { ref: focusRef, focusKey, focusSelf } = useFocusable({
     focusable: true,
@@ -148,8 +154,6 @@ const TvPlayer: React.FC<any> = ({
         link: state.infoUrl || '',
         provider: state.providerValue || '',
         lastPlayed: Date.now(),
-        duration: 0,
-        currentTime: 0,
         playbackRate: 1,
         episodeTitle: state.secondaryTitle,
       });
@@ -158,15 +162,24 @@ const TvPlayer: React.FC<any> = ({
 
   const handlePlayNative = useCallback(async (stream: any) => {
     if (!stream?.link) return;
+    setIsLaunching(true);
     try {
-      const { openUrl } = await import('@tauri-apps/plugin-opener');
-      const headers = stream.headers ? JSON.stringify(stream.headers) : '';
-      const intentUrl = `vega://play?url=${encodeURIComponent(stream.link)}&headers=${encodeURIComponent(headers)}`;
-      await openUrl(intentUrl);
+      if (isAndroid) {
+        const { openUrl } = await import('@tauri-apps/plugin-opener');
+        const headers = stream.headers ? JSON.stringify(stream.headers) : '';
+        const intentUrl = `vega://play?url=${encodeURIComponent(stream.link)}&headers=${encodeURIComponent(headers)}`;
+        await openUrl(intentUrl);
+      } else if (isLinux) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('open_external_player', { url: stream.link }).catch(console.error);
+      }
     } catch (e) {
-      console.error("Failed to open native player", e);
+      console.error("Failed to open player", e);
+    } finally {
+      // Keep loader visible for a couple seconds to cover the external player's startup time
+      setTimeout(() => setIsLaunching(false), 2000);
     }
-  }, []);
+  }, [isAndroid, isLinux]);
 
   if (streamLoading) {
     return (
@@ -181,9 +194,11 @@ const TvPlayer: React.FC<any> = ({
   }
 
   if (streamError) {
+    const bgUrl = state.poster?.background || state.poster?.poster;
     return (
-      <div className="player-page">
-        <div className="player-error">
+      <div className="player-page controls-visible" style={{ backgroundImage: bgUrl ? `url(${bgUrl})` : 'none', backgroundSize: 'cover', backgroundPosition: 'center' }}>
+        {bgUrl && <div className="player-page-overlay" style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(20px)' }} />}
+        <div className="player-error" style={{ background: bgUrl ? 'transparent' : '#000', zIndex: 1 }}>
           <p>{streamError.message || 'Failed to load stream'}</p>
           <FocusableButton className="action-btn primary-btn" onClick={() => navigate(-1)}>
             Go Back
@@ -217,25 +232,32 @@ const TvPlayer: React.FC<any> = ({
           <h2 style={{ fontSize: '3rem', fontWeight: 800, marginBottom: '8px', textAlign: 'center', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>{state.primaryTitle}</h2>
           {activeEpisode?.title && <h3 style={{ fontSize: '1.5rem', color: '#ccc', marginBottom: '40px', fontWeight: 500 }}>{activeEpisode.title}</h3>}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '400px' }}>
-            <h4 style={{ fontSize: '1.1rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Select Server</h4>
+          {isLaunching ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '40px' }}>
+              <div className="loading-spinner" />
+              <span style={{ marginTop: '16px', fontSize: '1.2rem', color: '#ccc' }}>Opening External Player...</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '400px' }}>
+              <h4 style={{ fontSize: '1.1rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Select Server</h4>
 
-            {streamData?.map((stream: any, idx: number) => (
-              <FocusableButton
-                key={idx}
-                focusKey={`TV_SERVER_${idx}`}
-                className={`action-btn ${selectedStream?.link === stream.link ? 'primary-btn' : 'secondary-btn'}`}
-                style={{ width: '100%', justifyContent: 'center', padding: '16px', fontSize: '1.2rem', borderRadius: '12px' }}
-                onClick={() => {
-                  setSelectedStream(stream);
-                  handlePlayNative(stream);
-                }}
-              >
-                <Play size={20} style={{ marginRight: '10px' }} />
-                {stream.server || `Server ${idx + 1}`} {stream.quality ? `(${stream.quality})` : ''}
-              </FocusableButton>
-            ))}
-          </div>
+              {streamData?.map((stream: any, idx: number) => (
+                <FocusableButton
+                  key={idx}
+                  focusKey={`TV_SERVER_${idx}`}
+                  className={`action-btn ${selectedStream?.link === stream.link ? 'primary-btn' : 'secondary-btn'}`}
+                  style={{ width: '100%', justifyContent: 'center', padding: '16px', fontSize: '1.2rem', borderRadius: '12px' }}
+                  onClick={() => {
+                    setSelectedStream(stream);
+                    handlePlayNative(stream);
+                  }}
+                >
+                  <Play size={20} style={{ marginRight: '10px' }} />
+                  {stream.server || `Server ${idx + 1}`} {stream.quality ? `(${stream.quality})` : ''}
+                </FocusableButton>
+              ))}
+            </div>
+          )}
 
           <FocusableButton
             focusKey="TV_SERVER_BACK"
@@ -303,9 +325,7 @@ const DesktopPlayer: React.FC<any> = ({
   }, [activeEpisodeIndex, toast, setActiveEpisodeIndex]);
 
   const mpv = useMpvPlayer({
-    onEof: () => {
-      if (activeEpisodeIndex < state.episodeList.length - 1) handleNextEpisode();
-    },
+
     onFileLoaded: () => {
       const uniqueEpisodeKey = `resume_${routeParams?.primaryTitle}_${routeParams?.secondaryTitle}_${activeEpisodeIndex}`;
       console.log('uniqueEpisodeKey', uniqueEpisodeKey);
@@ -354,7 +374,6 @@ const DesktopPlayer: React.FC<any> = ({
     prevStreamLinkRef.current = selectedStream.link;
 
     (async () => {
-      toast(`Loading: ${selectedStream.link}`);
       const subs = selectedStream.subtitles?.length ? selectedStream.subtitles : externalSubs;
       await mpv.loadFile(selectedStream.link, selectedStream.headers, subs);
     })();
@@ -375,8 +394,6 @@ const DesktopPlayer: React.FC<any> = ({
       link: state.infoUrl || '',
       provider: state.providerValue || provider?.value || '',
       lastPlayed: Date.now(),
-      duration: 0,
-      currentTime: 0,
       playbackRate: 1,
       episodeTitle: state.secondaryTitle,
     });
@@ -518,9 +535,16 @@ const DesktopPlayer: React.FC<any> = ({
   }, [activeEpisodeIndex, mpv.currentTime, mpv.duration, state.episodeList.length]);
 
   if (streamLoading) {
+    const bgUrl = state.poster?.background || state.poster?.poster;
     return (
-      <div className="player-page">
-        <div className="player-loading">
+      <div className="player-page controls-visible">
+        {bgUrl && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: -2 }} />
+            <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(20px)', zIndex: -1 }} />
+          </>
+        )}
+        <div className="player-loading" style={{ background: bgUrl ? 'transparent' : '#000' }}>
           <div className="loading-spinner" />
           <span className="loading-text">Fetching stream...</span>
         </div>
@@ -529,9 +553,16 @@ const DesktopPlayer: React.FC<any> = ({
   }
 
   if (streamError) {
+    const bgUrl = state.poster?.background || state.poster?.poster;
     return (
-      <div className="player-page">
-        <div className="player-error">
+      <div className="player-page controls-visible">
+        {bgUrl && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${bgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: -2 }} />
+            <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(20px)', zIndex: -1 }} />
+          </>
+        )}
+        <div className="player-error" style={{ background: bgUrl ? 'transparent' : '#000' }}>
           <p>{streamError.message || 'Failed to load stream'}</p>
           <button onClick={() => navigate(-1)}>Go Back</button>
         </div>
